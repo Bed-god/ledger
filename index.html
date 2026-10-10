@@ -212,6 +212,16 @@ dialog .dfoot>*{flex:1}
 @media (prefers-reduced-motion:reduce){ *{transition:none!important} }
 /* 大字体模式(ColorOS 系统字体放大)下防重叠 */
 @media (min-resolution:1x){ .stat b{font-size:clamp(14px,4.4vw,17px)} }
+
+/* 快捷记账行 */
+.quickrow{display:flex;gap:9px}
+.quickrow>*{flex:1}
+.tplchip{position:relative;border:1px solid var(--border);background:var(--surface2);border-radius:12px;min-height:var(--tap);padding:12px 38px 12px 13px;color:var(--fg);text-align:left;display:flex;flex-direction:column;gap:2px;justify-content:center;width:100%}
+.tplchip:active{border-color:var(--accent)}
+.tplchip .tn{font-size:14.5px;font-weight:600}
+.tplchip .ta{font-size:12px;color:var(--muted)}
+.tplchip .tdel{position:absolute;right:6px;top:50%;transform:translateY(-50%);width:28px;height:28px;min-height:0;padding:0;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--muted);font-size:15px;line-height:1}
+.impbadge{font-size:11px;padding:2px 7px;border-radius:999px;background:var(--surface2);border:1px solid var(--border);color:var(--muted);margin-left:6px;font-weight:400}
 </style>
 </head>
 <body>
@@ -225,6 +235,17 @@ dialog .dfoot>*{flex:1}
 <main>
   <!-- ===== 记账 ===== -->
   <section class="page active" id="page-add">
+    <div class="card">
+      <h2>快捷记账</h2>
+      <div class="quickrow">
+        <button class="btn sec" id="btnRepeat">↻ 复制上一条</button>
+      </div>
+      <div class="chips" id="tplChips" style="margin-top:10px"></div>
+      <div class="notice" id="tplEmpty" style="margin:10px 0 0">还没有模板。填好下面一笔后点「存为模板」,下次一键记。</div>
+      <div class="quickrow" style="margin-top:10px">
+        <button class="btn sec" id="btnSaveTpl">＋ 把当前填写存为模板</button>
+      </div>
+    </div>
     <div class="card">
       <h2>记一笔</h2>
 
@@ -315,6 +336,43 @@ dialog .dfoot>*{flex:1}
     </div>
   </section>
 
+  <!-- ===== 导入账单 ===== -->
+  <section class="page" id="page-import">
+    <div class="card">
+      <h2>导入账单</h2>
+      <div class="notice" style="margin:0 0 12px">
+        支持微信、支付宝导出的 CSV 账单,自动识别格式、自动分类。<br>
+        微信:<b>我 → 服务 → 钱包 → 账单 → 常见问题 → 下载账单 → 用于个人对账</b>,填邮箱收到压缩包。<br>
+        支付宝:网页版 <b>服务大厅 → 自助服务 → 交易记录</b>,下载后解压得到 CSV。<br>
+        微信账单是压缩包,<b>解压出 .csv 再选它</b>(不要选 zip)。
+      </div>
+      <label>选择账单文件(.csv)</label>
+      <input id="fBill" type="file" accept=".csv,text/csv">
+      <div style="height:12px"></div>
+      <details>
+        <summary>分类规则(可自行调整关键词)</summary>
+        <div class="rules" id="ruleInfo"></div>
+      </details>
+    </div>
+
+    <div class="card" id="impPreviewCard" style="display:none">
+      <h2>导入预览 <span id="impCount" style="color:var(--muted);text-transform:none;letter-spacing:0"></span></h2>
+      <div class="notice" id="impSummary" style="margin:0 0 12px"></div>
+      <div class="stats" style="margin-bottom:12px">
+        <div class="stat"><span>新增</span><b id="impNew" style="color:var(--success)">0</b></div>
+        <div class="stat"><span>重复跳过</span><b id="impDup" style="color:var(--warning)">0</b></div>
+        <div class="stat"><span>合计支出</span><b id="impExp" style="color:var(--error)">0</b></div>
+      </div>
+      <div style="max-height:46vh;overflow:auto;border:1px solid var(--border);border-radius:11px">
+        <ul class="tx" id="impList" style="padding:0 12px"></ul>
+      </div>
+      <div style="height:12px"></div>
+      <button class="btn" id="btnDoImport">确认导入</button>
+      <div style="height:10px"></div>
+      <button class="btn sec" id="btnCancelImport">取消</button>
+    </div>
+  </section>
+
   <!-- ===== 数据 ===== -->
   <section class="page" id="page-data">
     <div class="card">
@@ -364,36 +422,46 @@ const CAT = Object.fromEntries(CATS.map(c=>[c.id,c]));
 const isIncomeCat = id => id === 'income';
 
 /* ---------------- 存储层 ---------------- */
-const DB_NAME='ledger', DB_VER=1;
+const DB_NAME='ledger', DB_VER=2;
 let db=null, lsFallback=false;
 
 function openDB(){
   return new Promise(res=>{
     if(!('indexedDB' in window)){ lsFallback=true; return res(null); }
-    let req;
-    try{ req=indexedDB.open(DB_NAME,DB_VER); }catch(e){ lsFallback=true; return res(null); }
+    let done=false, req;
+    const finish=(v)=>{ if(done) return; done=true; clearTimeout(timer); res(v); };
+    // 若其它标签页/旧连接占着数据库,open 可能长时间不回调。超时后退回 localStorage,
+    // 保证界面永远能打开,而不是白屏。
+    const timer=setTimeout(()=>{ lsFallback=true; finish(null); }, 4000);
+    try{ req=indexedDB.open(DB_NAME,DB_VER); }catch(e){ lsFallback=true; return finish(null); }
     req.onupgradeneeded=()=>{
       const d=req.result;
       if(!d.objectStoreNames.contains('records')) d.createObjectStore('records',{keyPath:'id'});
       if(!d.objectStoreNames.contains('settlements')) d.createObjectStore('settlements',{keyPath:'month'});
+      if(!d.objectStoreNames.contains('templates')) d.createObjectStore('templates',{keyPath:'id'});
     };
-    req.onsuccess=()=>res(req.result);
-    req.onerror=()=>{ lsFallback=true; res(null); };
-    req.onblocked=()=>{ lsFallback=true; res(null); };
+    req.onsuccess=()=>{
+      const d=req.result;
+      // 其它标签页请求升级时主动让路,避免互相卡死
+      d.onversionchange=()=>{ try{ d.close(); }catch(e){} };
+      finish(d);
+    };
+    req.onerror=()=>{ lsFallback=true; finish(null); };
+    req.onblocked=()=>{ lsFallback=true; finish(null); };
   });
 }
 function lsGet(k,f){ try{ return JSON.parse(localStorage.getItem('ledger:'+k)||f); }catch(e){ return JSON.parse(f); } }
 function lsSet(k,v){ try{ localStorage.setItem('ledger:'+k,JSON.stringify(v)); }catch(e){ alert('本地存储写入失败:'+e.message); } }
 
 async function dbAll(store){
-  if(lsFallback) return lsGet(store,'[]');
+  if(lsFallback || !db) return lsGet(store,'[]');
   return new Promise((res,rej)=>{
     const t=db.transaction(store,'readonly'), r=t.objectStore(store).getAll();
     r.onsuccess=()=>res(r.result||[]); r.onerror=()=>rej(r.error);
   });
 }
 async function dbPut(store,val){
-  if(lsFallback){ const a=lsGet(store,'[]'); const k=val.id||val.month; const i=a.findIndex(x=>(x.id||x.month)===k); i>=0?a[i]=val:a.push(val); lsSet(store,a); return; }
+  if(lsFallback || !db){ const a=lsGet(store,'[]'); const k=val.id||val.month; const i=a.findIndex(x=>(x.id||x.month)===k); i>=0?a[i]=val:a.push(val); lsSet(store,a); return; }
   return new Promise((res,rej)=>{
     const t=db.transaction(store,'readwrite');
     t.objectStore(store).put(val);
@@ -401,7 +469,7 @@ async function dbPut(store,val){
   });
 }
 async function dbDel(store,key){
-  if(lsFallback){ lsSet(store, lsGet(store,'[]').filter(x=>(x.id||x.month)!==key)); return; }
+  if(lsFallback || !db){ lsSet(store, lsGet(store,'[]').filter(x=>(x.id||x.month)!==key)); return; }
   return new Promise((res,rej)=>{
     const t=db.transaction(store,'readwrite');
     t.objectStore(store).delete(key);
@@ -409,7 +477,7 @@ async function dbDel(store,key){
   });
 }
 async function dbClear(store){
-  if(lsFallback){ lsSet(store,[]); return; }
+  if(lsFallback || !db){ lsSet(store,[]); return; }
   return new Promise((res,rej)=>{
     const t=db.transaction(store,'readwrite'); t.objectStore(store).clear();
     t.oncomplete=()=>res(); t.onerror=()=>rej(t.error);
@@ -576,9 +644,17 @@ async function buildSettlement(month){
 async function autoSettle(){
   settlements=await dbAll('settlements');
   const now=curMonth();
-  const done=new Set(settlements.map(s=>s.month));
-  const months=new Set(records.map(r=>r.month));
-  const due=[...months].filter(m=>m<now&&!done.has(m)).sort();
+  const byMonth=new Map(settlements.map(s=>[s.month,s]));
+  // 每个月的实际记录数,用于判断已归档的结算是否还准确
+  const actual=new Map();
+  records.forEach(r=>actual.set(r.month,(actual.get(r.month)||0)+1));
+  const due=[];
+  [...actual.keys()].sort().forEach(m=>{
+    if (m>=now) return;                       // 未结束的月份不结算
+    const s=byMonth.get(m);
+    if (!s) due.push(m);                      // 从未结算 → 生成
+    else if ((s.totalRecords||0)!==actual.get(m)) due.push(m); // 之后又补录/导入了记录 → 重新结算
+  });
   for(const m of due) await buildSettlement(m);
   settlements=await dbAll('settlements');
   return due.length;
@@ -617,7 +693,7 @@ function downloadBlob(blob,name){
 }
 function bindData(){
   document.getElementById('btnExport').onclick=()=>{
-    const blob=new Blob([JSON.stringify({app:'ledger',version:1,exportedAt:new Date().toISOString(),records,settlements},null,2)],{type:'application/json'});
+    const blob=new Blob([JSON.stringify({app:'ledger',version:2,exportedAt:new Date().toISOString(),records,settlements,templates},null,2)],{type:'application/json'});
     downloadBlob(blob,'ledger-backup-'+todayStr()+'.json'); toast('已导出备份');
   };
   document.getElementById('btnExportCsv').onclick=()=>{
@@ -637,8 +713,9 @@ function bindData(){
         const o=JSON.parse(rd.result);
         if(!Array.isArray(o.records)) throw new Error('文件格式不正确');
         if(!confirm('导入将覆盖现有 '+records.length+' 条记录与 '+settlements.length+' 份结算,继续?')) return;
-        await dbClear('records'); await dbClear('settlements');
+        await dbClear('records'); await dbClear('settlements'); await dbClear('templates');
         records=o.records; settlements=Array.isArray(o.settlements)?o.settlements:[];
+        templates=Array.isArray(o.templates)?o.templates:[]; await saveTemplates();
         for(const r of records) await dbPut('records',r);
         for(const s of settlements) await dbPut('settlements',s);
         toast('导入完成:'+records.length+' 条'); renderAll();
@@ -651,14 +728,14 @@ function bindData(){
   document.getElementById('btnClear').onclick=()=>dlg.showModal();
   document.getElementById('clrNo').onclick=()=>dlg.close();
   document.getElementById('clrYes').onclick=async()=>{
-    await dbClear('records'); await dbClear('settlements');
-    records=[]; settlements=[]; dlg.close(); toast('已清空'); renderAll();
+    await dbClear('records'); await dbClear('settlements'); await dbClear('templates');
+    records=[]; settlements=[]; templates=[]; dlg.close(); toast('已清空'); renderAll();
   };
 }
 function renderStoreInfo(){
   const el=document.getElementById('storeInfo');
   const mode=lsFallback?'localStorage 兜底模式':'IndexedDB(推荐)';
-  el.innerHTML='存储引擎:'+mode+'<br>记录数:'+records.length+' 条 · 归档结算:'+settlements.length+' 份<br>'+
+  el.innerHTML='存储引擎:'+mode+'<br>记录数:'+records.length+' 条 · 归档结算:'+settlements.length+' 份 · 模板:'+templates.length+' 个<br>'+
     (navigator.storage&&navigator.storage.estimate?'<span id="quota">正在估算占用…</span>':'数据仅存于本机浏览器,清理浏览器数据会一并删除,请定期导出备份。');
   if(navigator.storage&&navigator.storage.estimate){
     navigator.storage.estimate().then(q=>{
@@ -668,11 +745,301 @@ function renderStoreInfo(){
   }
 }
 
+/* =========================================================
+   账单导入:微信 / 支付宝 CSV 解析 + 关键词自动分类
+   ========================================================= */
+
+/* 分类关键词。命中即归入对应分类;顺序即优先级(income 单独处理) */
+const RULES = [
+  { cat:'transit', kw:['地铁','公交','轨道交通','出行','打车','滴滴','花小猪','高德打车','出租车','网约车','加油','中国石化','中石化','中国石油','中石油','停车','洗车','高速','ETC','共享单车','哈啰','青桔','美团单车','铁路','12306','航空','机票','火车','车票','充电桩','特来电','小桔'] },
+  { cat:'food',    kw:['餐饮','美食','饭店','餐厅','火锅','烧烤','快餐','小吃','面馆','米粉','米线','汉堡','炸鸡','披萨','咖啡','奶茶','茶饮','蜜雪','喜茶','奈雪','瑞幸','星巴克','库迪','古茗','沪上阿姨','外卖','美团','饿了么','肯德基','麦当劳','必胜客','华莱士','塔斯汀','绝味','周黑鸭','便利店','超市','水果','菜市场','盒马','永辉','大润发','沃尔玛','华润万家','美宜佳','罗森','全家','7-11','零食','早餐','午餐','晚餐','食堂','烧烤'] },
+  { cat:'other',   kw:['淘宝','天猫','拼多多','京东','唯品会','抖音','快手','小红书','得物','闲鱼','苏宁','国美','网上','商城','购物','会员','视频','音乐','充值','话费','流量','宽带','游戏','腾讯','网易','爱奇艺','优酷','芒果','bilibili','哔哩哔哩','云','软件','订阅','快递','邮政','顺丰','菜鸟','话费充值','数码','电器','服装','鞋','化妆品','护肤','医药','药店','医院','挂号','房租','物业','水电','燃气','学费','培训','保险','话费'] },
+];
+const INCOME_KW = ['退款','退货','转入','收款','红包','利息','工资','薪资','报酬','奖金','补贴','报销','返现','收入','转入','转账','退款','收益','零钱通','余额宝','理财'];
+
+function ruleInfoText(){
+  return RULES.map(r=>{
+    const c=CAT[r.cat];
+    return '<b>'+c.name+'</b>:'+r.kw.slice(0,14).join('、')+'…';
+  }).join('<br>') + '<br><b>收入</b>:命中「退款/工资/奖金/转账/红包」等词时记为收入,否则按支出处理。';
+}
+
+/* 根据「交易对方 + 商品 + 类型」判断分类与收支方向 */
+function classify(text, dirHint){
+  const t = String(text||'');
+  // 明确的收/支字段优先
+  if (dirHint === 'income') return { cat:'income', type:'income' };
+  if (dirHint === 'expense'){
+    for (const r of RULES) if (r.kw.some(k=>t.includes(k))) return { cat:r.cat, type:'expense' };
+    return { cat:'other', type:'expense' };
+  }
+  // 账单里常见的 / 或空:用关键词推断
+  if (INCOME_KW.some(k=>t.includes(k))) return { cat:'income', type:'income' };
+  if (/退款|退货|返现/.test(t)) return { cat:'income', type:'income' };
+  for (const r of RULES) if (r.kw.some(k=>t.includes(k))) return { cat:r.cat, type:'expense' };
+  return { cat:'other', type:'expense' };
+}
+
+/* CSV 一行拆列,支持双引号包裹与转义 */
+function splitCsvLine(line){
+  const out=[]; let cur=''; let q=false;
+  for (let i=0;i<line.length;i++){
+    const ch=line[i];
+    if (q){
+      if (ch==='"'){
+        if (line[i+1]==='"'){ cur+='"'; i++; } else q=false;
+      } else cur+=ch;
+    } else {
+      if (ch==='"') q=true;
+      else if (ch===','){ out.push(cur); cur=''; }
+      else cur+=ch;
+    }
+  }
+  out.push(cur);
+  return out.map(s=>s.trim());
+}
+
+/* 解码:先试 UTF-8,出现替换字符则用 GBK(支付宝账单是 GBK) */
+function decodeBuf(buf){
+  const u8 = new TextDecoder('utf-8', { fatal:false }).decode(buf);
+  const bad = (u8.match(/\uFFFD/g)||[]).length;
+  if (bad > 2){
+    try { return new TextDecoder('gbk').decode(buf); } catch(e){ return u8; }
+  }
+  return u8;
+}
+
+/* 金额清洗:"¥12.34" / "12.34元" / "-5.00" → 数字 */
+function parseAmount(s){
+  if (s == null) return NaN;
+  const t = String(s).replace(/[¥￥,，\s元]/g,'');
+  const m = t.match(/-?\d+(\.\d+)?/);
+  return m ? parseFloat(m[0]) : NaN;
+}
+
+/* 日期清洗:"2026-08-04 12:30:00" / "2026/8/4" → "2026-08-04" */
+function parseDate(s){
+  if (!s) return todayStr();
+  const m = String(s).match(/(\d{4})[-\/年](\d{1,2})[-\/月](\d{1,2})/);
+  if (!m) return todayStr();
+  return m[1]+'-'+pad(+m[2])+'-'+pad(+m[3]);
+}
+
+/* 解析账单文本 → 记录数组。自动识别微信/支付宝并定位表头行 */
+function parseBill(text){
+  const rawLines = text.split(/\r?\n/).filter(l=>l.trim()!=='');
+  // 微信账单可能含 ﻿BOM 与分隔线;去掉纯分隔线
+  const lines = rawLines.filter(l=>!/^-+$/.test(l.trim()));
+  let headerIdx=-1, kind='', cols=null;
+  for (let i=0;i<Math.min(lines.length,40);i++){
+    const c = splitCsvLine(lines[i]);
+    const joined = c.join(',');
+    if (c.some(x=>x.includes('交易时间')) && c.some(x=>x.includes('交易对方'))){
+      headerIdx=i; kind='wechat'; cols=c; break;
+    }
+    if (c.some(x=>x.includes('交易创建时间')||x.includes('交易时间')) && c.some(x=>x.includes('交易对方')) && c.length>=12){
+      headerIdx=i; kind='alipay'; cols=c; break;
+    }
+  }
+  if (headerIdx<0) throw new Error('没找到账单表头。请确认是微信或支付宝导出的原始 CSV(不要自己改过)。');
+
+  const find = (names) => {
+    for (const n of names){
+      const i = cols.findIndex(x=>x.includes(n));
+      if (i>=0) return i;
+    }
+    return -1;
+  };
+  const iTime  = find(['交易时间','交易创建时间','付款时间','创建时间']);
+  const iOpp   = find(['交易对方','交易来源地']);
+  const iGoods = find(['商品','商品名称','备注']);
+  const iDir   = find(['收/支']);
+  const iAmt   = find(['金额']);
+  const iStat  = find(['当前状态','交易状态','资金状态']);
+  const iType  = find(['交易类型','类型']);
+
+  const out=[];
+  for (let i=headerIdx+1; i<lines.length; i++){
+    const c = splitCsvLine(lines[i]);
+    if (c.length < 5) continue;
+    const rawAmt = parseAmount(c[iAmt]);
+    if (!isFinite(rawAmt) || rawAmt === 0) continue;
+    const status = (c[iStat]||'');
+    // 只保留「已成功结算」的交易。微信与支付宝的状态词不同,这里用白名单,
+    // 避免「已退款 / 等待付款 / 交易关闭 / 已全额退款」等被当成正常消费计入。
+    const OK_RE = /支付成功|已存入零钱|已收钱|对方已收钱|已到账|充值成功|提现已到账|交易成功|已支出|已收入|退款成功|已全额退款|交易完成/;
+    if (status && !OK_RE.test(status)) continue;
+    if (/等待付款|待付款|未付款|失败|已关闭|已撤销|关闭/.test(status)) continue;
+    const dirRaw = (c[iDir]||'').trim();
+    const opp = (c[iOpp]||'').trim();
+    const goods = (c[iGoods]||'').trim();
+    const ttype = (c[iType]||'').trim();
+    const label = [opp, goods, ttype].filter(Boolean).join(' ');
+    let dirHint = null;
+    if (/收入|收/.test(dirRaw)) dirHint='income';
+    else if (/支出|支/.test(dirRaw)) dirHint='expense';
+    const cls = classify(label, dirHint);
+    // 微信「零钱通/信用卡还款」等中性交易跳过
+    if (/零钱通|理财通|信用卡还款|充值|提现|转账|亲属卡|红包/.test(ttype) && dirHint===null) continue;
+    const date = parseDate(c[iTime]);
+    out.push({
+      date, month:monthOf(date), cat:cls.cat, type:cls.type,
+      amount: Math.round(Math.abs(rawAmt)*100)/100,
+      source: opp || goods || '账单导入',
+      raw: lines[i],
+    });
+  }
+  return { kind, records: out };
+}
+
+/* 已解析、待确认导入的暂存 */
+let pendingImport = null;
+
+async function handleBillFile(file){
+  const buf = await file.arrayBuffer();
+  const text = decodeBuf(buf);
+  let parsed;
+  try { parsed = parseBill(text); }
+  catch(e){ alert(e.message); return; }
+  if (!parsed.records.length){ alert('账单里没有可导入的有效记录。'); return; }
+
+  // 与现有记录比对去重(日期+分类+类型+金额+来源)
+  const exist = new Set(records.map(r=>r.date+'|'+r.cat+'|'+r.type+'|'+r.amount+'|'+r.source));
+  const seen = new Set();
+  const fresh = [], dup = [];
+  parsed.records.forEach(r=>{
+    const k = r.date+'|'+r.cat+'|'+r.type+'|'+r.amount+'|'+r.source;
+    if (exist.has(k) || seen.has(k)) dup.push(r); else { seen.add(k); fresh.push(r); }
+  });
+  pendingImport = { fresh, dup, kind:parsed.kind };
+  renderImportPreview();
+}
+
+function renderImportPreview(){
+  const card=document.getElementById('impPreviewCard');
+  if (!pendingImport){ card.style.display='none'; return; }
+  const { fresh, dup, kind } = pendingImport;
+  card.style.display='';
+  document.getElementById('impCount').textContent='('+(fresh.length+dup.length)+' 条)';
+  document.getElementById('impSummary').innerHTML =
+    '识别为 <b>'+(kind==='wechat'?'微信':'支付宝')+'</b> 账单,共解析 '+(fresh.length+dup.length)+' 条。'+
+    (dup.length?('其中 <b>'+dup.length+'</b> 条与已有记录重复,将自动跳过。'):'');
+  const expSum = fresh.filter(r=>r.type!=='income').reduce((a,r)=>a+r.amount,0);
+  document.getElementById('impNew').textContent = fresh.length;
+  document.getElementById('impDup').textContent = dup.length;
+  document.getElementById('impExp').textContent = '¥'+fmt(expSum);
+  const ul=document.getElementById('impList'); ul.innerHTML='';
+  const show = fresh.slice(0,300);
+  if (!show.length){
+    ul.innerHTML='<li class="empty" style="border:0">全部为重复记录,无需导入。</li>';
+  }
+  show.forEach(r=>{
+    const inc = r.type==='income';
+    const li=document.createElement('li');
+    li.innerHTML=
+      '<span class="sw" style="background:'+CAT[r.cat].color+';margin-top:6px"></span>'+
+      '<div class="meta"><div class="t1">'+CAT[r.cat].name+' · '+r.date+'</div>'+
+      '<div class="t2">'+escapeHtml(r.source)+'</div></div>'+
+      '<span class="amt '+(inc?'inc':'exp')+'">'+(inc?'+':'-')+'¥'+fmt(r.amount)+'</span>';
+    ul.appendChild(li);
+  });
+  if (fresh.length>300){
+    const li=document.createElement('li'); li.className='empty'; li.style.border='0';
+    li.textContent='…… 还有 '+(fresh.length-300)+' 条,导入后会全部写入'; ul.appendChild(li);
+  }
+}
+
+async function doImport(){
+  if (!pendingImport) return;
+  const { fresh } = pendingImport;
+  for (const r of fresh){
+    const rec = {
+      id:uid(), date:r.date, month:r.month, cat:r.cat, type:r.type,
+      amount:r.amount, source:r.source, createdAt:new Date().toISOString(), imported:true,
+    };
+    records.push(rec);
+    await dbPut('records', rec);
+  }
+  pendingImport = null;
+  document.getElementById('impPreviewCard').style.display='none';
+  await autoSettle();
+  renderAll();
+  toast('已导入 '+fresh.length+' 条记录');
+  go('list');
+}
+
+/* ---------------- 模板(快捷记账) ---------------- */
+let templates = [];
+async function loadTemplates(){ templates = await dbAll('templates'); }
+async function saveTemplates(){
+  await dbClear('templates');
+  for (const t of templates) await dbPut('templates', t);
+}
+function renderTemplates(){
+  const wrap=document.getElementById('tplChips'); if(!wrap) return;
+  wrap.innerHTML='';
+  document.getElementById('tplEmpty').style.display = templates.length?'none':'';
+  templates.forEach((t,idx)=>{
+    const c=CAT[t.cat]||CAT.other;
+    const b=document.createElement('button');
+    b.type='button'; b.className='tplchip';
+    b.innerHTML='<span class="tn">'+escapeHtml(t.name)+'</span><span class="ta">'+c.name+' · '+(t.type==='income'?'+':'-')+'¥'+fmt(t.amount)+'</span>';
+    b.addEventListener('click', async ()=>{
+      const d=todayStr();
+      const rec={ id:uid(), date:d, month:monthOf(d), cat:t.cat, type:t.type||'expense',
+        amount:t.amount, source:t.source||t.name, createdAt:new Date().toISOString() };
+      records.push(rec); await dbPut('records', rec);
+      renderList(); renderSettle(0); refreshSourceList();
+      if(navigator.vibrate) try{ navigator.vibrate(18); }catch(e){}
+      toast('已记 '+t.name+' ¥'+fmt(t.amount));
+    });
+    const del=document.createElement('button');
+    del.type='button'; del.className='tdel'; del.textContent='×';
+    del.title='删除模板';
+    del.addEventListener('click', async (ev)=>{
+      ev.stopPropagation();
+      if(!confirm('删除模板「'+t.name+'」?')) return;
+      templates.splice(idx,1); await saveTemplates(); renderTemplates();
+    });
+    b.appendChild(del);
+    wrap.appendChild(b);
+  });
+}
+
+/* 把当前表单内容存成模板 */
+async function saveCurrentAsTemplate(){
+  const amount=parseFloat(document.getElementById('fAmount').value);
+  const source=document.getElementById('fSource').value.trim();
+  if(!(amount>0)){ toast('请先填好金额再存为模板'); document.getElementById('fAmount').focus(); return; }
+  const name = source || CAT[ui.cat].name;
+  const t = { id:uid(), name, cat:ui.cat, type:ui.type, amount:Math.round(amount*100)/100, source:source||name };
+  const dup = templates.some(x=>x.name===t.name && x.amount===t.amount && x.cat===t.cat);
+  if (dup){ toast('已有相同模板'); return; }
+  templates.push(t); await saveTemplates(); renderTemplates();
+  toast('已存为模板:'+name);
+}
+
+/* 复制上一条 */
+async function repeatLast(){
+  if (!records.length){ toast('还没有记录可复制'); return; }
+  const last=[...records].sort((a,b)=>(b.createdAt||'').localeCompare(a.createdAt||''))[0];
+  document.querySelectorAll('#typeSeg button').forEach(b=>b.setAttribute('aria-pressed', String(b.dataset.type===last.type)));
+  ui.type = last.type || 'expense';
+  ui.cat  = last.cat;
+  renderTypeSeg(); renderCats();
+  document.getElementById('fAmount').value = last.amount;
+  document.getElementById('fDate').value = todayStr();
+  document.getElementById('fSource').value = last.source;
+  toast('已带入上一条,改金额即可保存');
+  document.getElementById('fAmount').focus();
+}
+
 /* ---------------- 导航 ---------------- */
 const PAGES=[
   {id:'add',  label:'记账',icon:'<path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2.2" fill="none" stroke-linecap="round"/>'},
   {id:'list', label:'明细',icon:'<path d="M4 6h16M4 12h16M4 18h10" stroke="currentColor" stroke-width="2.2" fill="none" stroke-linecap="round"/>'},
   {id:'month',label:'月结',icon:'<rect x="3" y="5" width="18" height="16" rx="2.5" stroke="currentColor" stroke-width="2.2" fill="none"/><path d="M3 10h18M8 3v4M16 3v4" stroke="currentColor" stroke-width="2.2" fill="none" stroke-linecap="round"/>'},
+  {id:'import',label:'导入',icon:'<path d="M12 3v12m0 0l-4.5-4.5M12 15l4.5-4.5" stroke="currentColor" stroke-width="2.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 17v2.5c0 .8.7 1.5 1.5 1.5h13c.8 0 1.5-.7 1.5-1.5V17" stroke="currentColor" stroke-width="2.2" fill="none" stroke-linecap="round"/>'},
   {id:'data', label:'数据',icon:'<ellipse cx="12" cy="6.5" rx="8" ry="3.2" stroke="currentColor" stroke-width="2.2" fill="none"/><path d="M4 6.5v11c0 1.8 3.6 3.2 8 3.2s8-1.4 8-3.2v-11" stroke="currentColor" stroke-width="2.2" fill="none"/>'},
 ];
 function renderNav(){
@@ -691,23 +1058,43 @@ function go(id){
   if(id==='list') renderList();
   if(id==='month') renderSettle(0);
   if(id==='data') renderStoreInfo();
+  if(id==='add'){ renderTemplates(); renderTypeSeg(); renderCats(); refreshSourceList(); }
   if(id==='add'&&!document.getElementById('hdrSub').textContent) document.getElementById('hdrSub').textContent=curMonth();
   window.scrollTo(0,0);
 }
 
 /* ---------------- 渲染总入口 ---------------- */
-function renderAll(){ refreshSourceList(); renderList(); renderSettle(0); }
+function renderAll(){ refreshSourceList(); renderList(); renderSettle(0); renderTemplates(); }
 
 /* ---------------- 启动 ---------------- */
 async function boot(){
   db=await openDB();
   records=await dbAll('records');
   settlements=await dbAll('settlements');
+  await loadTemplates();
+
 
   document.getElementById('fDate').value=todayStr();
   document.getElementById('settleMonth').value=prevMonth();
   renderNav(); renderTypeSeg(); renderCats(); bindData();
   document.getElementById('hdrSub').textContent=curMonth();
+  renderTemplates();
+  document.getElementById('ruleInfo').innerHTML=ruleInfoText();
+  document.getElementById('btnRepeat').addEventListener('click',repeatLast);
+  document.getElementById('btnSaveTpl').addEventListener('click',saveCurrentAsTemplate);
+  document.getElementById('fBill').addEventListener('change',async e=>{
+    const f=e.target.files[0]; if(!f) return;
+    if(/\.zip$/i.test(f.name)){ alert('这是压缩包,请先解压,选择解压出来的 .csv 文件。'); e.target.value=''; return; }
+    try{ await handleBillFile(f); }catch(err){ alert('读取失败:'+err.message); }
+    e.target.value='';
+  });
+  document.getElementById('btnDoImport').addEventListener('click',doImport);
+  document.getElementById('btnCancelImport').addEventListener('click',()=>{
+    pendingImport=null;
+    document.getElementById('impPreviewCard').style.display='none';
+    document.getElementById('fBill').value='';
+    toast('已取消导入');
+  });
 
   document.querySelectorAll('#typeSeg button').forEach(b=>{
     b.addEventListener('click',()=>{ ui.type=b.dataset.type; renderTypeSeg(); renderCats(); });
