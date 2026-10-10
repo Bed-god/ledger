@@ -127,7 +127,7 @@ input:focus,select:focus,textarea:focus{outline:2px solid var(--accent);outline-
 /* ---------- 统计 ---------- */
 .stats{display:grid;grid-template-columns:repeat(3,1fr);gap:9px}
 .stat{background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:12px 8px;text-align:center}
-.stat b{display:block;font-size:16px;margin-top:4px;font-variant-numeric:tabular-nums;letter-spacing:-.02em;word-break:break-all}
+.stat b{display:block;font-size:clamp(13px,3.9vw,17px);margin-top:4px;font-variant-numeric:tabular-nums;letter-spacing:-.03em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .stat span{font-size:11px;color:var(--muted)}
 .bar{display:flex;height:10px;border-radius:6px;overflow:hidden;background:var(--surface2);margin:14px 0 11px}
 .bar i{display:block;min-width:3px}
@@ -458,6 +458,28 @@ dialog .dfoot>*{flex:1}
 
   <!-- ===== 导入账单 ===== -->
   <section class="page" id="page-import">
+    <div class="card" id="autoBillCard" style="display:none">
+      <h2>自动记账(实时)</h2>
+      <div class="notice" style="margin:0 0 12px">
+        开启后,你在<b>微信 / 支付宝</b>付款完成后,记账本会识别金额并弹窗让你确认分类,点「记下来」就入库。<br>
+        <b>识别不完整也没关系</b>:下方「导入账单」的 CSV 导入是官方数据,会兜底补齐,两者自动去重。
+      </div>
+      <div class="planrow"><span class="pl">通知读取</span><span class="pv2" id="stNotify">未开启</span></div>
+      <div class="planrow" style="margin-bottom:12px"><span class="pl">付款页面识别</span><span class="pv2" id="stA11y">未开启</span></div>
+      <button class="btn sec" id="btnChkNotify" style="margin-bottom:10px">① 开启通知读取</button>
+      <button class="btn sec" id="btnChkA11y" style="margin-bottom:10px">② 开启付款页面识别</button>
+      <button class="btn sec" id="btnChkNow" style="margin-bottom:10px">刷新状态</button>
+      <details>
+        <summary>它到底读什么?(隐私说明)</summary>
+        <div class="rules">
+          <b>只读这两个 App</b>:微信、支付宝。系统层面已限定,读不到其它任何 App。<br>
+          <b>只读界面文字</b>:用于匹配「¥12.00」这类金额和商户名。不读聊天内容、不读键盘输入、不读短信通讯录。<br>
+          <b>不联网</b>:识别与记账全部在你手机本地完成,不上传任何数据,没有服务器。<br>
+          <b>不自动入账</b>:识别后一定弹窗等你点「记下来」,不会悄悄记错账。<br>
+          <b>随时可关</b>:手机「设置 → 无障碍 / 通知使用权」里关掉记账本即可,关掉后立即停止读取。
+        </div>
+      </details>
+    </div>
     <div class="card">
       <h2>导入账单</h2>
       <div class="notice" style="margin:0 0 12px">
@@ -1544,6 +1566,113 @@ function go(id){
 function renderAll(){ refreshSourceList(); renderList(); renderSettle(0); renderTemplates(); renderBudgets(); renderCompare(); }
 
 /* ---------------- 启动 ---------------- */
+/* =========================================================
+   原生桥(仅在 APK 内可用,网页版自动跳过)
+   —— 实时自动记账:识别到付款后弹窗确认分类再入库
+   ========================================================= */
+const nativeBridge = (typeof AndroidNative !== 'undefined') ? AndroidNative : null;
+const isNativeApp = ()=> !!(nativeBridge && nativeBridge.isNative && nativeBridge.isNative());
+
+/* 从原生取走待确认账单并弹窗;无可用桥或无待确认账单时静默返回 */
+function pollPendingBill(){
+  if (!isNativeApp()) return;
+  let json;
+  try{ json = nativeBridge.consumePending(); }catch(e){ return; }
+  if (!json) return;
+  let b;
+  try{ b = JSON.parse(json); }catch(e){ return; }
+  if (!(b && b.amount>0)) return;
+  showBillConfirm(b);
+}
+
+/* 待确认弹窗:确认后写入,并与账单文件导入共用同一套去重键 */
+function showBillConfirm(b){
+  if (document.getElementById('dlgBill')) return;   // 已在弹窗中
+  const dlg=document.createElement('dialog');
+  dlg.id='dlgBill';
+  const cat = b.isIncome ? 'income' : guessCat((b.merchant||'')+' '+(b.source||''));
+  const cats = b.isIncome
+    ? CATS.filter(c=>isIncomeCat(c.id))
+    : CATS.filter(c=>!isIncomeCat(c.id));
+  const body =
+    '<div class="dhead">识别到一笔'+(b.isIncome?'收入':'支出')+'</div>'+
+    '<div class="dbody">'+
+      '<div style="font-size:22px;font-weight:800;margin-bottom:8px;color:'+(b.isIncome?'var(--success)':'var(--error)')+'">'+
+        (b.isIncome?'+':'-')+'¥'+fmt(b.amount)+'</div>'+
+      '<div>来源:'+escapeHtml(b.source||'未注明')+'</div>'+
+      '<div style="margin-top:4px;font-size:12px;color:var(--muted)">来自'+(b.channel==='notify'?'支付通知':'付款页面')+' · '+new Date(b.time).toLocaleString('zh-CN')+'</div>'+
+      '<div style="margin-top:12px">归类到</div>'+
+      '<select id="billCat" style="width:100%;margin-top:6px;min-height:48px">'+
+        cats.map(c=>'<option value="'+c.id+'"'+(c.id===cat?' selected':'')+'>'+c.name+'</option>').join('')+
+      '</select>'+
+      '<label style="margin-top:10px;display:block">来源 / 说明</label>'+
+      '<input id="billSrc" type="text" value="'+escapeHtml(b.source||'')+'" style="width:100%;margin-top:6px;min-height:48px">'+
+    '</div>'+
+    '<div class="dfoot">'+
+      '<button class="btn sec" id="billSkip">忽略</button>'+
+      '<button class="btn" id="billOk">记下来</button>'+
+    '</div>';
+  dlg.innerHTML=body;
+  document.body.appendChild(dlg);
+  dlg.showModal();
+  document.getElementById('billSkip').onclick=()=>{ dlg.close(); dlg.remove(); };
+  document.getElementById('billOk').onclick=async()=>{
+    const catId=document.getElementById('billCat').value;
+    const src=document.getElementById('billSrc').value.trim()||b.source||'未注明来源';
+    dlg.close(); dlg.remove();
+    const date=new Date(b.time||Date.now());
+    const iso=date.getFullYear()+'-'+pad(date.getMonth()+1)+'-'+pad(date.getDate());
+    const rec={ id:uid(), date:iso, month:monthOf(iso), cat:catId,
+      type:b.isIncome?'income':'expense', amount:Math.round(b.amount*100)/100,
+      source:src, createdAt:new Date().toISOString(), auto:true };
+    const dup=records.some(r=>r.date===rec.date&&r.cat===rec.cat&&r.type===rec.type&&r.amount===rec.amount&&r.source===rec.source);
+    if (dup){ toast('已存在相同记录,已跳过'); return; }
+    records.push(rec);
+    await dbPut('records',rec);
+    toast('已自动记账 '+(CAT[catId]?CAT[catId].name:'')+' ¥'+fmt(rec.amount));
+    renderAll();
+    go('list');
+    if(navigator.vibrate) try{ navigator.vibrate(18); }catch(e){}
+  };
+}
+
+/* 用记账本的分类规则猜分类(与账单导入共用 RULES) */
+function guessCat(text){
+  const t=String(text||'');
+  for (const r of RULES) if (r.kw.some(k=>t.includes(k))) return r.cat;
+  return 'other';
+}
+
+/* 刷新两个权限的开启状态 */
+function refreshPermStatus(){
+  if (!isNativeApp()) return;
+  const set=(id,on)=>{
+    const el=document.getElementById(id);
+    if (!el) return;
+    el.textContent=on ? '已开启' : '未开启';
+    el.style.color=on ? 'var(--success)' : 'var(--muted)';
+  };
+  let n=false, a=false;
+  try{ n=!!nativeBridge.isNotifyEnabled(); }catch(e){}
+  try{ a=!!nativeBridge.isAccessibilityEnabled(); }catch(e){}
+  set('stNotify',n); set('stA11y',a);
+}
+
+/* 打开 App 时接管自动记账卡片,并轮询原生侧识别到的待确认账单 */
+function bindNativeBill(){
+  if (!isNativeApp()) return;
+  const p=document.getElementById('autoBillCard');
+  if (p){
+    p.style.display='';
+    document.getElementById('btnChkNotify').onclick=()=>{ nativeBridge.openNotificationSettings(); };
+    document.getElementById('btnChkA11y').onclick=()=>{ nativeBridge.openAccessibilitySettings(); };
+    document.getElementById('btnChkNow').onclick=refreshPermStatus;
+    refreshPermStatus();
+  }
+  pollPendingBill();
+  setInterval(()=>{ pollPendingBill(); refreshPermStatus(); }, 3000);
+}
+
 async function boot(){
   db=await openDB();
   records=await dbAll('records');
@@ -1564,6 +1693,7 @@ async function boot(){
   renderPlan();
   document.getElementById('hdrSub').textContent=curMonth();
   renderTemplates();
+  bindNativeBill();
   document.getElementById('ruleInfo').innerHTML=ruleInfoText();
   document.getElementById('btnRepeat').addEventListener('click',repeatLast);
   document.getElementById('btnSaveTpl').addEventListener('click',saveCurrentAsTemplate);
