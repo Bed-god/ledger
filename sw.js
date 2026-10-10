@@ -1,5 +1,5 @@
 /* 自动记账本 Service Worker — 离线缓存(兼容 GitHub Pages 子路径) */
-const VERSION = 'v3';
+const VERSION = 'v4';
 const CACHE = 'ledger-' + VERSION;
 /* 全部使用相对路径,GitHub Pages 的 /repo/ 子目录下同样正确 */
 const ASSETS = [
