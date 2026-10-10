@@ -1,0 +1,25 @@
+{
+  "name": "自动记账本",
+  "short_name": "记账本",
+  "description": "离线可用的自动记账本:吃喝 / 外出交通 / 其他平台消费 分类,月底自动结算",
+  "start_url": "./index.html",
+  "scope": "./",
+  "id": "ledger-auto",
+  "display": "standalone",
+  "display_override": ["standalone", "minimal-ui"],
+  "orientation": "portrait-primary",
+  "background_color": "#0f172a",
+  "theme_color": "#0f172a",
+  "lang": "zh-CN",
+  "dir": "ltr",
+  "categories": ["finance", "productivity"],
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "icon-maskable.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "记一笔支出", "short_name": "记支出", "url": "./index.html#add" },
+    { "name": "查看本月明细", "short_name": "明细", "url": "./index.html#list" },
+    { "name": "月度结算", "short_name": "月结", "url": "./index.html#month" }
+  ]
+}

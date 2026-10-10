@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- maskable:关键图形压在中间 80% 安全区内,外层留 bleed -->
+  <rect width="512" height="512" fill="#0f172a"/>
+  <g transform="translate(256,256) scale(0.78) translate(-256,-256)">
+    <rect x="136" y="130" width="240" height="252" rx="34" fill="none" stroke="#38bdf8" stroke-width="28"/>
+    <path d="M104 216h304" stroke="#38bdf8" stroke-width="28"/>
+    <circle cx="330" cy="306" r="30" fill="#34d399"/>
+    <path d="M160 300h96" stroke="#9aa8bd" stroke-width="24" stroke-linecap="round"/>
+  </g>
+</svg>
