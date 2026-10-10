@@ -264,6 +264,22 @@ dialog .dfoot>*{flex:1}
 .catrow .cstat.over b{color:var(--error)}
 .catrow .cstat.warn b{color:var(--warning)}
 .catrow .cstat.ok b{color:var(--success)}
+/* ---------- 规划页 ---------- */
+.planbig{background:var(--surface2);border:1px solid var(--border);border-radius:13px;padding:14px;margin-bottom:10px}
+.planbig .pt{font-size:13px;color:var(--muted);margin-bottom:5px}
+.planbig .pv{font-size:26px;font-weight:800;font-variant-numeric:tabular-nums;letter-spacing:-.02em;line-height:1.2}
+.planbig .pv small{font-size:14px;font-weight:600;margin-left:4px;color:var(--muted)}
+.planbig .pd{font-size:12.5px;color:var(--muted);margin-top:7px;line-height:1.6}
+.planbig.good{border-color:color-mix(in srgb,var(--success) 45%,transparent)}
+.planbig.good .pv{color:var(--success)}
+.planbig.bad{border-color:color-mix(in srgb,var(--error) 45%,transparent)}
+.planbig.bad .pv{color:var(--error)}
+.planbig.warn{border-color:color-mix(in srgb,var(--warning) 45%,transparent)}
+.planbig.warn .pv{color:var(--warning)}
+.planrow{display:flex;align-items:baseline;gap:9px;padding:9px 0;border-bottom:1px solid var(--border);font-size:14px}
+.planrow:last-child{border-bottom:0}
+.planrow .pl{flex:1;min-width:0;color:var(--muted)}
+.planrow .pv2{font-variant-numeric:tabular-nums;font-weight:700;white-space:nowrap}
 </style>
 </head>
 <body>
@@ -406,6 +422,37 @@ dialog .dfoot>*{flex:1}
       <h2>已归档结算</h2>
       <ul class="tx" id="settleList"></ul>
       <div class="empty" id="settleEmpty">还没有归档结算。到月底打开应用会自动生成。</div>
+    </div>
+  </section>
+
+  <!-- ===== 规划 ===== -->
+  <section class="page" id="page-plan">
+    <div class="card">
+      <h2>存钱与耐花天数</h2>
+      <div class="notice" style="margin:0 0 12px">
+        用<b>上个月</b>的实际花销推算本月能存多少、能撑几天。数据自动取自你的账目,不用手填。
+      </div>
+      <div class="monthsel">
+        <div><label>参考月份</label><input id="planRef" type="month"></div>
+      </div>
+      <div style="height:10px"></div>
+      <div id="planBasis" class="notice" style="margin:0"></div>
+    </div>
+
+    <div class="card">
+      <h2>输入要算的金额</h2>
+      <div class="notice" style="margin:0 0 12px">填一个数,看这笔钱按上个月的消费水平能撑多少天。</div>
+      <label>金额(元)</label>
+      <input id="planAmt" type="number" inputmode="decimal" step="0.01" min="0" placeholder="如 3000">
+      <div class="presets">
+        <button class="chip sm" data-amt="1000" type="button">1000</button>
+        <button class="chip sm" data-amt="3000" type="button">3000</button>
+        <button class="chip sm" data-amt="5000" type="button">5000</button>
+        <button class="chip sm" data-amt="10000" type="button">10000</button>
+        <button class="chip sm" data-amt="0" type="button" id="planClear">清空</button>
+      </div>
+      <div style="height:12px"></div>
+      <div id="planResult"></div>
     </div>
   </section>
 
@@ -925,6 +972,116 @@ async function clearBudgets(){
   renderBudgets(); renderCompare();
   toast('预算已清除');
 }
+/* =========================================================
+   规划页:按上月消费水平推算「能存多少」与「能撑几天」
+   口径(月收入 = 当月总收入,不扣支出;扣除本月已花):
+     日均支出 = 参考月支出 / 该月实际天数
+     月可存   = 参考月总收入 − 本月已花
+     金额可撑 = 输入金额 / 日均支出
+   ========================================================= */
+const daysInMonth=m=>{ const [y,mm]=m.split('-').map(Number); return new Date(y,mm,0).getDate(); };
+
+/* 参考月的实际消费水平。日均支出按该月真实天数算,月中的月份也能用 */
+function planBasis(month){
+  const t=monthTotals(month);
+  if (!t) return null;
+  const days=daysInMonth(month);
+  return { month, days, expense:t.expense, income:t.income, net:t.income-t.expense, perDay:t.expense/days };
+}
+
+function renderPlan(){
+  const refEl=document.getElementById('planRef');
+  const basisEl=document.getElementById('planBasis');
+  const resEl=document.getElementById('planResult');
+  if (!refEl || !basisEl || !resEl) return;
+  const ref=refEl.value || prevMonth();
+  refEl.value=ref;
+  const b=planBasis(ref);
+  const cur=monthTotals(curMonth());
+  const spentThis=(cur ? cur.expense : 0);
+
+  basisEl.style.display='';
+  if (!b){
+    basisEl.textContent=ref+' 没有任何记录,无法推算。换一个月,或先去「记账」/「导入」补上账目。';
+    resEl.innerHTML='';
+    return;
+  }
+  basisEl.innerHTML=
+    '参考 <b>'+ref+'</b>(共 '+b.days+' 天):收入 <b style="color:var(--success)">'+money(b.income)+'</b> · '+
+    '支出 <b style="color:var(--error)">'+money(b.expense)+'</b> · 结余 <b style="color:'+(b.net<0?'var(--error)':'var(--success)')+'">'+money(b.net)+'</b><br>'+
+    '→ 日均支出 <b>'+money(b.perDay)+'</b> · 本月('+curMonth()+')已花 <b style="color:var(--error)">'+money(spentThis)+'</b>';
+
+  const savable=b.income-spentThis;          // 本月还能存(总收入口径)
+  const amtRaw=parseFloat(document.getElementById('planAmt').value);
+  const amt=isFinite(amtRaw)&&amtRaw>0 ? amtRaw : null;
+  const box=(cls,label,val,unit,desc)=>
+    '<div class="planbig '+cls+'"><div class="pt">'+label+'</div>'+
+    '<div class="pv">'+val+(unit?'<small>'+unit+'</small>':'')+'</div>'+
+    '<div class="pd">'+desc+'</div></div>';
+
+  let html='';
+  html+=box(
+    savable>=0?'good':'bad',
+    '本月还能存',
+    money(savable),
+    '',
+    savable>=0
+      ? '按 '+ref+' 的总收入 '+money(b.income)+',扣掉本月已花 '+money(spentThis)+'。'
+      : '本月已花 '+money(spentThis)+' 已超过 '+ref+' 的总收入 '+money(b.income)+',按当前水平本月存不下钱。'
+  );
+  if (b.perDay>0){
+    if (savable>0){
+      const d=savable/b.perDay;
+      html+=box(
+        d>=30?'good':(d>=15?'warn':'bad'),
+        '这笔存款能撑',
+        String(Math.round(d)),
+        ' 天',
+        '按日均支出 '+money(b.perDay)+' 计算,'+(d>=30?'够用一个多月':(d>=15?'半个月左右':'不够半个月'))+'。'
+      );
+    } else {
+      html+=box('bad','这笔存款能撑','—',' 天','本月还没有可存的余额,无法估算能撑多少天。');
+    }
+  } else {
+    html+=box('warn','这笔存款能撑','—',' 天',ref+' 没有支出记录,无法计算能撑多少天。');
+  }
+  if (amt!==null){
+    if (b.perDay>0){
+      const d=amt/b.perDay;
+      html+=box(
+        d>=30?'good':(d>=15?'warn':'bad'),
+    '输入的 '+money(amt)+' 能撑',
+        isFinite(d)? String(Math.round(d)) : '—',
+        ' 天',
+    '这笔钱 ÷ 日均支出 '+money(b.perDay)+'。'
+      );
+    } else {
+      html+=box('warn','输入的 '+money(amt)+' 能撑','—',' 天',ref+' 没有支出记录,无法计算天数。');
+    }
+  }
+  // 两套口径并列:月可存 ÷ 日均 与 输入金额 ÷ 日均
+  html+='<div style="margin-top:4px">';
+  html+='<div class="planrow"><span class="pl">日均支出</span><span class="pv2">'+money(b.perDay)+'</span></div>';
+  if (b.perDay>0){
+    html+='<div class="planrow"><span class="pl">月可存 ÷ 日均</span><span class="pv2">'+(savable>0 ? Math.round(savable/b.perDay)+' 天' : '—')+'</span></div>';
+    if (amt!==null)
+  html+='<div class="planrow"><span class="pl">输入金额 ÷ 日均</span><span class="pv2">'+Math.round(amt/b.perDay)+' 天</span></div>';
+  }
+  resEl.innerHTML=html;
+}
+
+function bindPlan(){
+  document.getElementById('planRef').addEventListener('change',renderPlan);
+  document.getElementById('planAmt').addEventListener('input',renderPlan);
+  document.querySelectorAll('.presets .chip[data-amt]').forEach(b=>{
+    b.addEventListener('click',()=>{
+      const v=b.dataset.amt;
+      document.getElementById('planAmt').value = v==='0' ? '' : v;
+      renderPlan();
+    });
+  });
+}
+
 /* 预算行:输入框 + 本月已用 / 状态 */
 function renderBudgets(){
   const wrap=document.getElementById('budgetRows');
@@ -1357,6 +1514,7 @@ const PAGES=[
   {id:'add',  label:'记账',icon:'<path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2.2" fill="none" stroke-linecap="round"/>'},
   {id:'list', label:'明细',icon:'<path d="M4 6h16M4 12h16M4 18h10" stroke="currentColor" stroke-width="2.2" fill="none" stroke-linecap="round"/>'},
   {id:'month',label:'月结',icon:'<rect x="3" y="5" width="18" height="16" rx="2.5" stroke="currentColor" stroke-width="2.2" fill="none"/><path d="M3 10h18M8 3v4M16 3v4" stroke="currentColor" stroke-width="2.2" fill="none" stroke-linecap="round"/>'},
+  {id:'plan', label:'规划',icon:'<circle cx="12" cy="12" r="8.5" stroke="currentColor" stroke-width="2.2" fill="none"/><circle cx="12" cy="12" r="4.6" stroke="currentColor" stroke-width="2.2" fill="none"/><circle cx="12" cy="12" r="1.5" fill="currentColor"/>'},
   {id:'import',label:'导入',icon:'<path d="M12 3v12m0 0l-4.5-4.5M12 15l4.5-4.5" stroke="currentColor" stroke-width="2.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 17v2.5c0 .8.7 1.5 1.5 1.5h13c.8 0 1.5-.7 1.5-1.5V17" stroke="currentColor" stroke-width="2.2" fill="none" stroke-linecap="round"/>'},
   {id:'data', label:'数据',icon:'<ellipse cx="12" cy="6.5" rx="8" ry="3.2" stroke="currentColor" stroke-width="2.2" fill="none"/><path d="M4 6.5v11c0 1.8 3.6 3.2 8 3.2s8-1.4 8-3.2v-11" stroke="currentColor" stroke-width="2.2" fill="none"/>'},
 ];
@@ -1375,6 +1533,7 @@ function go(id){
   document.querySelectorAll('#nav button').forEach(b=>b.setAttribute('aria-current',b.dataset.page===id?'page':'false'));
   if(id==='list') renderList();
   if(id==='month'){ renderSettle(0); renderBudgets(); renderCompare(); }
+  if(id==='plan') renderPlan();
   if(id==='data') renderStoreInfo();
   if(id==='add'){ renderTemplates(); renderTypeSeg(); renderCats(); refreshSourceList(); }
   if(id==='add'&&!document.getElementById('hdrSub').textContent) document.getElementById('hdrSub').textContent=curMonth();
@@ -1397,9 +1556,12 @@ async function boot(){
   document.getElementById('settleMonth').value=prevMonth();
   renderNav(); renderTypeSeg(); renderCats(); bindData();
   bindCompare();
+  bindPlan();
+  document.getElementById('planRef').value=prevMonth();
   document.querySelector('.presets .chip[data-months="6"]').setAttribute('aria-pressed','true');
   setComparePreset(6);
   renderBudgets();
+  renderPlan();
   document.getElementById('hdrSub').textContent=curMonth();
   renderTemplates();
   document.getElementById('ruleInfo').innerHTML=ruleInfoText();
