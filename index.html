@@ -222,7 +222,45 @@ dialog .dfoot>*{flex:1}
 .tplchip .ta{font-size:12px;color:var(--muted)}
 .tplchip .tdel{position:absolute;right:6px;top:50%;transform:translateY(-50%);width:28px;height:28px;min-height:0;padding:0;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--muted);font-size:15px;line-height:1}
 .impbadge{font-size:11px;padding:2px 7px;border-radius:999px;background:var(--surface2);border:1px solid var(--border);color:var(--muted);margin-left:6px;font-weight:400}
+/* ---------- 月度对比图 ---------- */
+.rangebar{display:flex;gap:10px}
+.rangebar>div{flex:1;min-width:0}
+.rangebar input{min-height:var(--tap);padding:11px 10px}
+.presets{display:flex;gap:7px;margin-top:10px;flex-wrap:wrap}
+.chip.sm{padding:7px 14px;font-size:13px;min-height:36px;border-radius:999px;border:1px solid var(--border);background:var(--surface2);color:var(--muted);width:auto}
+.chip.sm[aria-pressed=true]{background:var(--accent);border-color:var(--accent);color:var(--accent-fg);font-weight:600}
+.cmpchart{display:flex;align-items:flex-end;gap:6px;margin-top:10px;overflow-x:auto;padding-bottom:6px;-webkit-overflow-scrolling:touch}
+.cmpcol{flex:1 0 46px;min-width:46px;display:flex;flex-direction:column;align-items:center;gap:4px}
+.cmpbars{display:flex;align-items:flex-end;gap:3px;height:132px}
+.cmpbar{width:17px;border-radius:4px 4px 0 0;min-height:2px;transition:height .25s}
+.cmpbar.inc{background:var(--success)}
+.cmpbar.exp{background:var(--error)}
+.cmpcol.over .cmplab{color:var(--warning);font-weight:700}
+.cmpcol .cmplab{font-size:10.5px;color:var(--muted);white-space:nowrap}
+.cmpcol .cmpflag{font-size:12px;line-height:1;height:13px}
+.cmpval{font-size:9.5px;color:var(--muted);font-variant-numeric:tabular-nums;writing-mode:vertical-rl;text-orientation:mixed;height:34px;opacity:.85}
+.overbadge{display:inline-block;font-size:11px;padding:2px 8px;border-radius:999px;background:color-mix(in srgb,var(--warning) 20%,transparent);color:var(--warning);border:1px solid color-mix(in srgb,var(--warning) 45%,transparent);font-weight:700;margin-left:6px}
 </style>
+
+/* ---------- 月度对比图 ---------- */
+.rangebar{display:flex;gap:10px}
+.rangebar>div{flex:1;min-width:0}
+.rangebar input{min-height:var(--tap);padding:11px 10px}
+.presets{display:flex;gap:7px;margin-top:10px;flex-wrap:wrap}
+.chip.sm{padding:7px 14px;font-size:13px;min-height:36px;border-radius:999px;border:1px solid var(--border);background:var(--surface2);color:var(--muted);width:auto}
+.chip.sm[aria-pressed=true]{background:var(--accent);border-color:var(--accent);color:var(--accent-fg);font-weight:600}
+.cmpchart{display:flex;align-items:flex-end;gap:6px;margin-top:10px;overflow-x:auto;padding-bottom:6px;-webkit-overflow-scrolling:touch}
+.cmpcol{flex:1 0 46px;min-width:46px;display:flex;flex-direction:column;align-items:center;gap:4px}
+.cmpbars{display:flex;align-items:flex-end;gap:3px;height:132px}
+.cmpbar{width:17px;border-radius:4px 4px 0 0;min-height:2px;transition:height .25s}
+.cmpbar.inc{background:var(--success)}
+.cmpbar.exp{background:var(--error)}
+.cmpcol.over .cmpbars::after{content:"";}
+.cmpcol.over .cmplab{color:var(--warning);font-weight:700}
+.cmpcol .cmplab{font-size:10.5px;color:var(--muted);white-space:nowrap}
+.cmpcol .cmpflag{font-size:12px;line-height:1;height:13px}
+.cmpval{font-size:9.5px;color:var(--muted);font-variant-numeric:tabular-nums;writing-mode:vertical-rl;text-orientation:mixed;height:34px;opacity:.85}
+.overbadge{display:inline-block;font-size:11px;padding:2px 8px;border-radius:999px;background:color-mix(in srgb,var(--warning) 20%,transparent);color:var(--warning);border:1px solid color-mix(in srgb,var(--warning) 45%,transparent);font-weight:700;margin-left:6px}
 </head>
 <body>
 <header>
@@ -311,6 +349,26 @@ dialog .dfoot>*{flex:1}
 
   <!-- ===== 月结 ===== -->
   <section class="page" id="page-month">
+    <div class="card">
+      <h2>月度对比</h2>
+      <div class="rangebar">
+        <div><label>从</label><input id="cmpFrom" type="month"></div>
+        <div><label>到</label><input id="cmpTo" type="month"></div>
+      </div>
+      <div class="presets">
+        <button class="chip sm" data-months="3" type="button">近3月</button>
+        <button class="chip sm" data-months="6" type="button">近6月</button>
+        <button class="chip sm" data-months="12" type="button">近12月</button>
+        <button class="chip sm" data-months="0" type="button">全部</button>
+      </div>
+      <div class="legend" style="flex-direction:row;flex-wrap:wrap;gap:14px;margin:12px 0 4px">
+        <div class="row2" style="gap:7px"><span class="sw" style="background:var(--success)"></span><span>收入</span></div>
+        <div class="row2" style="gap:7px"><span class="sw" style="background:var(--error)"></span><span>支出</span></div>
+        <div class="row2" style="gap:7px"><span class="sw" style="background:var(--warning)"></span><span>超支月(支出&nbsp;&gt;&nbsp;收入)</span></div>
+      </div>
+      <div id="cmpChart" class="cmpchart"></div>
+      <div id="cmpSummary" class="notice" style="margin:12px 0 0"></div>
+    </div>
     <div class="card">
       <h2>月度结算</h2>
       <div class="notice" id="autoSettleNotice" style="display:none;margin-bottom:12px"></div>
@@ -659,6 +717,120 @@ async function autoSettle(){
   settlements=await dbAll('settlements');
   return due.length;
 }
+/* =========================================================
+   月度对比图:每月 收入 vs 支出 双柱,超支月高亮
+   ========================================================= */
+function monthsList(from, to){
+  const out=[]; let [y,m]=from.split('-').map(Number);
+  const [ty,tm]=to.split('-').map(Number);
+  let guard=0;
+  while ((y<ty || (y===ty&&m<=tm)) && guard++<240){ out.push(y+'-'+pad(m)); m++; if(m>12){m=1;y++;} }
+  return out;
+}
+/* 单月汇总:优先用归档结算,没有就用实时记录 */
+function monthTotals(m){
+  const s=settlements.find(x=>x.month===m);
+  if (s) return { income:s.income||0, expense:s.expense||0, archived:true };
+  const list=records.filter(r=>r.month===m);
+  if (!list.length) return null;
+  let income=0, expense=0;
+  list.forEach(r=>{ if(r.type==='income'||isIncomeCat(r.cat)) income+=r.amount; else expense+=r.amount; });
+  return { income, expense, archived:false };
+}
+function allMonthsWithData(){
+  const set=new Set([...records.map(r=>r.month), ...settlements.map(s=>s.month)]);
+  return [...set].filter(Boolean).sort();
+}
+function renderCompare(){
+  const chart=document.getElementById('cmpChart');
+  const sumEl=document.getElementById('cmpSummary');
+  if (!chart) return;
+  const all=allMonthsWithData();
+  if (!all.length){
+    chart.innerHTML='';
+    sumEl.style.display='';
+    sumEl.textContent='还没有任何月份的数据。先记几笔,或到「导入」页导入账单。';
+    return;
+  }
+  let from=document.getElementById('cmpFrom').value || all[0];
+  let to  =document.getElementById('cmpTo').value   || all[all.length-1];
+  if (from>to){ const t=from; from=to; to=t; }
+  const months=monthsList(from,to);
+  const data=months.map(m=>({ m, t:monthTotals(m) }));
+  const shown=data.filter(d=>d.t);
+  if (!shown.length){
+    chart.innerHTML='';
+    sumEl.textContent='所选区间内没有记录,换个范围试试。';
+    return;
+  }
+  const max=Math.max(...shown.map(d=>Math.max(d.t.income,d.t.expense)), 1);
+  const H=132;
+
+  chart.innerHTML='';
+  data.forEach(d=>{
+    const col=document.createElement('div'); col.className='cmpcol';
+    if (!d.t){
+      col.innerHTML='<div class="cmpbars"></div><div class="cmpflag"></div><div class="cmplab">'+d.m.slice(5)+'</div>';
+      chart.appendChild(col);
+      return;
+    }
+    const over = d.t.expense > d.t.income;
+    if (over) col.classList.add('over');
+    const hI=Math.max(d.t.income/max*H, d.t.income>0?3:1);
+    const hE=Math.max(d.t.expense/max*H, d.t.expense>0?3:1);
+    col.innerHTML =
+      '<div class="cmpval">'+ (over? '超'+fmt(d.t.expense-d.t.income) : '') +'</div>'+
+      '<div class="cmpbars">'+
+        '<i class="cmpbar inc" style="height:'+hI+'px" title="收入 ¥'+fmt(d.t.income)+'"></i>'+
+        '<i class="cmpbar exp" style="height:'+hE+'px" title="支出 ¥'+fmt(d.t.expense)+'"></i>'+
+      '</div>'+
+      '<div class="cmpflag">'+(over?'⚠️':'')+'</div>'+
+      '<div class="cmplab">'+d.m.slice(2).replace('-','/')+(d.t.archived?'':'*')+'</div>';
+    chart.appendChild(col);
+  });
+
+  // 汇总:区间合计 + 超支月提示
+  const totI=shown.reduce((a,d)=>a+d.t.income,0);
+  const totE=shown.reduce((a,d)=>a+d.t.expense,0);
+  const overMonths=shown.filter(d=>d.t.expense>d.t.income);
+  const net=totI-totE;
+  let html='区间 '+from+' ~ '+to+':收入 <b style="color:var(--success)">¥'+fmt(totI)+'</b> · 支出 <b style="color:var(--error)">¥'+fmt(totE)+'</b> · 结余 <b style="color:'+(net<0?'var(--error)':'var(--success)')+'">¥'+fmt(net)+'</b>';
+  if (overMonths.length){
+    const names=overMonths.map(d=>d.m.slice(5)).join('、');
+    html+='<div style="margin-top:7px"><span class="overbadge">超支 '+overMonths.length+' 个月</span> '+names+' 月支出大于收入,合计超支 <b style="color:var(--warning)">¥'+fmt(overMonths.reduce((a,d)=>a+(d.t.expense-d.t.income),0))+'</b></div>';
+  } else {
+    html+='<div style="margin-top:7px">所选区间每月都有结余 👍</div>';
+  }
+  html+='<div style="margin-top:6px;font-size:12px">带 * 的月份为实时数据(尚未归档结算)</div>';
+  sumEl.innerHTML=html;
+}
+function setComparePreset(nMonths){
+  const all=allMonthsWithData();
+  if (!all.length) return;
+  const to = all[all.length-1];
+  let from;
+  if (!nMonths) from=all[0];
+  else {
+    const list=monthsList(all[0], to);
+    from = list[Math.max(0, list.length - nMonths)];
+  }
+  document.getElementById('cmpFrom').value=from;
+  document.getElementById('cmpTo').value=to;
+  renderCompare();
+}
+function bindCompare(){
+  const from=document.getElementById('cmpFrom');
+  const to=document.getElementById('cmpTo');
+  [from,to].forEach(el=>el.addEventListener('change',renderCompare));
+  document.querySelectorAll('.presets .chip').forEach(b=>{
+    b.addEventListener('click',()=>{
+      document.querySelectorAll('.presets .chip').forEach(x=>x.setAttribute('aria-pressed','false'));
+      b.setAttribute('aria-pressed','true');
+      setComparePreset(parseInt(b.dataset.months,10));
+    });
+  });
+}
+
 function renderSettle(justDid){
   const list=[...settlements].sort((a,b)=>b.month.localeCompare(a.month));
   const ul=document.getElementById('settleList'); ul.innerHTML='';
@@ -1056,7 +1228,7 @@ function go(id){
   document.querySelectorAll('.page').forEach(s=>s.classList.toggle('active',s.id==='page-'+id));
   document.querySelectorAll('#nav button').forEach(b=>b.setAttribute('aria-current',b.dataset.page===id?'page':'false'));
   if(id==='list') renderList();
-  if(id==='month') renderSettle(0);
+  if(id==='month'){ renderSettle(0); renderCompare(); }
   if(id==='data') renderStoreInfo();
   if(id==='add'){ renderTemplates(); renderTypeSeg(); renderCats(); refreshSourceList(); }
   if(id==='add'&&!document.getElementById('hdrSub').textContent) document.getElementById('hdrSub').textContent=curMonth();
@@ -1064,7 +1236,7 @@ function go(id){
 }
 
 /* ---------------- 渲染总入口 ---------------- */
-function renderAll(){ refreshSourceList(); renderList(); renderSettle(0); renderTemplates(); }
+function renderAll(){ refreshSourceList(); renderList(); renderSettle(0); renderTemplates(); renderCompare(); }
 
 /* ---------------- 启动 ---------------- */
 async function boot(){
@@ -1077,6 +1249,9 @@ async function boot(){
   document.getElementById('fDate').value=todayStr();
   document.getElementById('settleMonth').value=prevMonth();
   renderNav(); renderTypeSeg(); renderCats(); bindData();
+  bindCompare();
+  document.querySelector('.presets .chip[data-months="6"]').setAttribute('aria-pressed','true');
+  setComparePreset(6);
   document.getElementById('hdrSub').textContent=curMonth();
   renderTemplates();
   document.getElementById('ruleInfo').innerHTML=ruleInfoText();
